@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Place Above</title>
+<style>
+  :root { --gold:#e8b85a; --cyan:#5fe0e6; --red:#ff4b3a; --ink:#07181b; --panel:rgba(7,24,27,.72); }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--ink); color:#e9efe9; overflow:hidden;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; user-select:none; }
+  canvas { cursor:crosshair; display:block; position:fixed; inset:0; width:100%; height:100%; }
+  .hud { position:fixed; pointer-events:none; z-index:2; }
+  .panel { background:var(--panel); border:1px solid rgba(232,184,90,.25); border-radius:10px; padding:10px 14px; backdrop-filter: blur(4px); }
+  .lbl { font-size:11px; letter-spacing:.14em; opacity:.7; text-transform:uppercase; margin-bottom:5px; }
+  #tl { top:16px; left:16px; display:flex; gap:10px; }
+  #tr { top:16px; right:16px; display:flex; gap:10px; text-align:right; }
+  .pips { display:flex; gap:4px; }
+  .pips i { width:18px; height:12px; border-radius:2px; background:rgba(255,255,255,.14); }
+  #hull i.on { background:var(--cyan); }
+  #ammo { font-size:22px; font-weight:700; font-variant-numeric: tabular-nums; color:var(--gold); min-width:64px; }
+  .lowammo #ammo, .dry #ammo { color:var(--red); }
+  .low #hull i.on { background:var(--red); animation: blink .6s infinite alternate; }
+  @keyframes blink { to { opacity:.35; } }
+  .big { font-size:22px; font-weight:700; font-variant-numeric: tabular-nums; }
+  #prompt { left:50%; bottom:13%; transform:translateX(-50%); font-size:16px; font-weight:600; opacity:0; transition:opacity .15s; white-space:nowrap; }
+  #prompt.show { opacity:1; }
+  #toast { left:50%; top:16%; transform:translateX(-50%); font-size:18px; letter-spacing:.2em; text-transform:uppercase; color:var(--gold);
+    opacity:0; transition:opacity .3s; text-shadow:0 2px 12px #000; white-space:nowrap; }
+  #toast.show { opacity:1; }
+  #reload-warn { left:50%; top:50%; transform:translate(-50%,-50%); text-align:center; display:none; text-shadow:0 2px 14px #000; }
+  #reload-warn.show { display:block; }
+  #reload-warn .w { font-size:clamp(34px, 6vw, 64px); font-weight:800; letter-spacing:.18em; color:var(--red); animation: blink .35s infinite alternate; }
+  #reload-warn .k { font-size:16px; letter-spacing:.14em; margin-top:6px; color:#fff; }
+  #reticle { left:0; top:0; width:54px; height:54px; margin:-27px 0 0 -27px; border:2px solid var(--red); border-radius:50%; display:none;
+    box-shadow:0 0 12px rgba(255,75,58,.6); }
+  #reticle.obj { border-color:var(--gold); box-shadow:0 0 12px rgba(232,184,90,.5); width:44px; height:44px; margin:-22px 0 0 -22px; }
+  #reticle.obj::after { background:var(--gold); inset:18px; }
+  #reticle.manual { border-width:4px; outline:2px solid rgba(255,255,255,.85); outline-offset:5px; }
+  #reticle::after { content:""; position:absolute; inset:23px; background:var(--red); border-radius:50%; }
+  #pilot { right:16px; bottom:16px; width:396px; height:249px; border-radius:12px; overflow:hidden; border:2px solid rgba(232,184,90,.6);
+    box-shadow:0 6px 24px rgba(0,0,0,.5); background:#000; }
+  #pilot-card { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; transition:background .2s; }
+  #pilot-card small { font-size:10px; letter-spacing:.2em; opacity:.75; }
+  #pilot-label { font-size:20px; font-weight:800; letter-spacing:.08em; margin-top:4px; text-align:center; }
+  #pilot-video, .pilot-clip { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:none; }
+  #pilot .tagline { position:absolute; left:8px; top:6px; font-size:10px; letter-spacing:.18em; opacity:.8; }
+  #help { left:16px; bottom:16px; font-size:12px; line-height:1.6; opacity:.8; }
+  #help b { color:var(--gold); font-weight:600; }
+  #pad { opacity:.7; } #pad.on { color:var(--cyan); opacity:1; }
+  .screen { position:fixed; inset:0; z-index:5; display:none; flex-direction:column; align-items:center; justify-content:center; text-align:center;
+    background:radial-gradient(ellipse at 50% 40%, #1c4a4a 0%, #07181b 70%); padding:24px; }
+  .screen.show { display:flex; }
+  .screen h1 { font-size:clamp(40px, 8vw, 92px); margin:0; letter-spacing:.06em; color:var(--gold); font-weight:800; }
+  .screen h2 { font-size:28px; margin:0 0 8px; color:var(--gold); letter-spacing:.1em; }
+  .screen p { max-width:560px; line-height:1.6; opacity:.85; }
+  .btn { pointer-events:auto; cursor:pointer; margin-top:22px; padding:12px 28px; border-radius:999px; border:1px solid var(--gold); background:transparent;
+    color:var(--gold); font-size:15px; letter-spacing:.16em; text-transform:uppercase; font-weight:700; }
+  .btn:hover { background:var(--gold); color:var(--ink); }
+  .row { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+  .btn.quiet { border-color:rgba(233,239,233,.45); color:#e9efe9; }
+  /* ---- start screen: hero art on black, the title set across the front of it ---- */
+  #title { background:#000; padding:0; justify-content:flex-end; overflow:hidden; }
+  #title-fx { position:absolute; inset:0; width:100%; height:100%; cursor:default; image-rendering:pixelated; }
+  #title-hero { position:absolute; left:50%; top:47%; height:90%; aspect-ratio:2688 / 1520; transform:translate(-50%,-50%); mix-blend-mode:screen; opacity:0; }
+  #title-hero img { display:block; width:100%; height:100%; image-rendering:pixelated; }
+  /* the eye: a blue glow centred on the lens (50.8% across, 11.9% down the art), with a thin lens flare through it */
+  #title-eye { position:absolute; left:50.8%; top:11.9%; width:11%; aspect-ratio:1; transform:translate(-50%,-50%); opacity:0; pointer-events:none; mix-blend-mode:screen;
+    background:radial-gradient(circle, #ffffff 0 5%, #9fe0ff 9%, #2f9bff 17%, rgba(30,110,255,.55) 30%, rgba(20,80,255,.18) 48%, rgba(0,40,255,0) 70%); }
+  #title-eye::after { content:""; position:absolute; left:-150%; right:-150%; top:49.2%; height:1.6%; background:linear-gradient(90deg, rgba(60,150,255,0), rgba(170,220,255,.8) 50%, rgba(60,150,255,0)); }      /* hair-thin lens flare */
+  #title.powered #title-hero { animation:none; opacity:1; }
+  #title.powered #title-eye { animation: eyeBlink 4.9s linear both, eyeGrow 4.9s ease-in both; }      /* timed to the power-up clip: it blinks faster and faster, then flares on the burst */
+  @keyframes eyeBlink { 0% { opacity:0; } 1.5% { opacity:1; } 10.62% { opacity:1; } 10.82% { opacity:.08; } 12.45% { opacity:.08; } 12.65% { opacity:1; } 21.50% { opacity:1; } 21.70% { opacity:.08; } 23.33% { opacity:.08; } 23.53% { opacity:1; } 30.86% { opacity:1; } 31.06% { opacity:.08; } 32.69% { opacity:.08; } 32.89% { opacity:1; } 38.90% { opacity:1; } 39.10% { opacity:.08; } 40.74% { opacity:.08; } 40.94% { opacity:1; } 45.83% { opacity:1; } 46.03% { opacity:.08; } 47.66% { opacity:.08; } 47.86% { opacity:1; } 51.78% { opacity:1; } 51.98% { opacity:.08; } 53.61% { opacity:.08; } 53.81% { opacity:1; } 56.90% { opacity:1; } 57.10% { opacity:.08; } 58.73% { opacity:.08; } 58.93% { opacity:1; } 61.38% { opacity:1; } 61.58% { opacity:.08; } 63.14% { opacity:.08; } 63.34% { opacity:1; } 65.41% { opacity:1; } 65.61% { opacity:.08; } 66.92% { opacity:.08; } 67.12% { opacity:1; } 68.88% { opacity:1; } 69.08% { opacity:.08; } 70.18% { opacity:.08; } 70.38% { opacity:1; } 71.86% { opacity:1; } 72.06% { opacity:.08; } 72.98% { opacity:.08; } 73.18% { opacity:1; } 74.42% { opacity:1; } 74.62% { opacity:.08; } 75.39% { opacity:.08; } 75.59% { opacity:1; } 76.63% { opacity:1; } 76.83% { opacity:.08; } 77.46% { opacity:.08; } 77.66% { opacity:1; } 78.53% { opacity:1; } 78.73% { opacity:.08; } 79.24% { opacity:.08; } 79.44% { opacity:1; } 80.16% { opacity:1; } 80.36% { opacity:.08; } 80.77% { opacity:.08; } 80.97% { opacity:1; } 81.56% { opacity:1; } 81.76% { opacity:.08; } 82.09% { opacity:.08; } 82.29% { opacity:1; } 82.77% { opacity:1; } 82.97% { opacity:.08; } 83.22% { opacity:.08; } 83.42% { opacity:1; } 83.80% { opacity:1; } 84.00% { opacity:.08; } 84.19% { opacity:.08; } 84.39% { opacity:1; } 100% { opacity:1; } }
+  @keyframes eyeGrow { 0% { transform:translate(-50%,-50%) scale(.5); } 88% { transform:translate(-50%,-50%) scale(1.3); } 91% { transform:translate(-50%,-50%) scale(2.6); } 100% { transform:translate(-50%,-50%) scale(4); } }
+  #title.powered #title-logo, #title.powered #title-menu, #title.powered #title-foot { animation:none; opacity:1; }
+  #title.powered #title-flash { background:#bfe4ff; animation: powerOut .5s ease-in 4.35s both; }       /* washes out into the game */
+  @keyframes powerOut { from { opacity:0; } to { opacity:1; } }
+  #title.intro #title-hero { animation: heroIn 3s ease-out 3s both, heroDrift 16s ease-in-out 6s infinite alternate; }
+  @keyframes heroIn { 0% { opacity:0; filter:brightness(.3) sepia(1) saturate(3) hue-rotate(-18deg); } 55% { opacity:.75; filter:brightness(.8) sepia(.7) saturate(2) hue-rotate(-18deg); }
+    100% { opacity:1; filter:none; } }
+  @keyframes heroDrift { from { transform:translate(-50%,-50%) scale(1); } to { transform:translate(-50%,-50%) scale(1.03); } }
+  #title-scan { position:absolute; inset:0; pointer-events:none; opacity:.07; background:repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.55) 2px 3px); }
+  #title-flash { position:absolute; inset:0; pointer-events:none; background:#000; }
+  #title.intro #title-flash { background:#fff; animation: flashOut .7s ease-out both; }
+  @keyframes flashOut { from { opacity:1; } to { opacity:0; } }
+  #title-shade { position:absolute; inset:0; pointer-events:none;
+    background: linear-gradient(to bottom, rgba(0,0,0,.15) 0%, rgba(0,0,0,0) 16%, rgba(0,0,0,0) 44%, rgba(0,0,0,.82) 72%, #000 100%),
+      radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0) 55%, rgba(0,0,0,.5) 100%); }
+  #title-logo { position:relative; width:min(92vw, 1100px); margin-bottom:5vh; opacity:0; }
+  #title.intro #title-logo { animation: fadeUp 2.4s ease-out 7s both; }       /* the title and its tagline come up last, after the art, prompt and footer */
+  @keyframes fadeUp { from { opacity:0; } to { opacity:1; } }
+  /* military stencil plate: tall condensed industrial capitals in flat worn steel, cut through by a stencil bridge */
+  #title h1 { font-family:"DIN Condensed","Bahnschrift Condensed","Oswald",Impact,"Arial Narrow",sans-serif; font-weight:700; font-style:normal;
+    font-size:clamp(40px, 10.5vw, 150px); line-height:.92; letter-spacing:.14em; margin:0 -.14em 0 0; padding-top:.08em; white-space:nowrap; text-transform:uppercase;
+    color:#e4e7e1; -webkit-text-stroke:.035em #e4e7e1; opacity:.8; text-shadow:0 0 22px rgba(0,0,0,.9), 0 3px 0 rgba(0,0,0,.55);      /* stroke thickens the letters */
+    -webkit-mask-image:linear-gradient(to bottom, #000 0 47%, transparent 47% 50.5%, #000 50.5% 100%); mask-image:linear-gradient(to bottom, #000 0 47%, transparent 47% 50.5%, #000 50.5% 100%); }
+  #title h1 { filter:url(#lores2); }                                   /* all start-screen text is lightly pixelated */
+  @media (min-resolution: 2dppx) { #title-sub, #title-menu, #title-foot { filter:url(#lores1); } }      /* half-pixel blocks need a high-density screen */
+  @media not (min-resolution: 2dppx) { #title-sub, #title-menu, #title-foot { filter:url(#lores2); } }
+  #title-sub { margin-top:14px; font-size:clamp(9px, 1.15vw, 14px); letter-spacing:.42em; color:var(--gold); padding-left:.42em; }
+  #title-menu { position:relative; margin-bottom:9vh; display:flex; flex-direction:column; align-items:center; gap:14px; opacity:0; }
+  #title.intro #title-menu { animation: fadeUp 1s ease-out 5.4s both; }
+  .menu-item { pointer-events:auto; cursor:pointer; background:none; border:0; color:#f1f4f1; font:inherit; font-size:clamp(13px, 1.7vw, 19px);
+    letter-spacing:.24em; padding:8px 22px; text-shadow:0 0 14px rgba(232,184,90,.55); }
+  .menu-item .mark { color:var(--gold); margin-right:.9em; font-size:.8em; animation: blink .7s infinite alternate; }
+  .menu-item:hover { color:var(--gold); }
+  #start { animation: blink 1.1s infinite alternate; }       /* the one prompt on the screen pulses */
+  #title.powered #start { animation:none; }
+  /* Michroma: wide squared capitals in the Eurostile / Microgramma family (SIL Open Font License, see CREDITS.md) */
+  @font-face { font-family:"Michroma"; src:url("assets/fonts/Michroma-Regular.ttf") format("truetype"); font-display:swap; }
+  #title-sub, .menu-item, #title-press, #title-foot { font-family:"Michroma","Helvetica Neue",Arial,sans-serif; font-weight:400; -webkit-text-stroke:.03em currentColor; }
+  #title-foot { position:absolute; left:0; right:0; bottom:18px; font-size:clamp(8px, .95vw, 12px); letter-spacing:.2em; color:#c9cdc6; opacity:0; text-shadow:0 0 8px rgba(0,0,0,.9); }
+  #title.intro #title-foot { animation: fadeUp 1s ease-out 6s both; }
+  /* shown only if the browser will not play sound until the page is touched: one press wakes the screen and its music */
+  #title-gate { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:#000; z-index:3;
+    font-family:"Michroma","Helvetica Neue",Arial,sans-serif; font-size:clamp(11px, 1.3vw, 16px); letter-spacing:.3em; color:#c9cdc6; animation: blink 1.1s infinite alternate; }
+  #title.gate #title-gate { display:flex; }
+  #title-music { position:absolute; right:22px; bottom:18px; font-family:"Michroma","Helvetica Neue",Arial,sans-serif; font-size:clamp(7px, .8vw, 10px); letter-spacing:.24em; color:#6d7671; opacity:0; }
+  #title.intro #title-music { animation: fadeUp 1s ease-out 6s both; }
+  #title-press { font-size:clamp(10px, 1.05vw, 13px); letter-spacing:.26em; color:#d07f2e; animation: blink 1.1s infinite alternate; }
+  table.keys { border-collapse:collapse; margin-top:14px; font-size:14px; }
+  table.keys td { padding:4px 16px; border-bottom:1px solid rgba(255,255,255,.1); text-align:left; }
+  #cutscene { background:#000; z-index:8; padding:0; }
+  #cs-video { width:100%; height:100%; object-fit:contain; display:none; background:#000; }
+  #cs-card { flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%;
+    background:repeating-linear-gradient(135deg, #10292c 0 26px, #0c2124 26px 52px); }
+  #cs-tag { font-size:12px; letter-spacing:.3em; opacity:.7; }
+  #cs-title { font-size:clamp(34px, 6vw, 72px); font-weight:800; color:var(--gold); margin:12px 0; }
+  #cs-note { font-size:18px; opacity:.85; max-width:640px; }
+  #cs-track { position:absolute; left:0; right:0; bottom:0; height:4px; background:rgba(255,255,255,.1); }
+  #cs-bar { height:100%; width:0; background:var(--gold); }
+  #cs-skip { position:absolute; right:24px; bottom:28px; margin:0; background:rgba(0,0,0,.5); }
+  #fade { position:fixed; inset:0; background:#200; opacity:0; pointer-events:none; z-index:4; transition:opacity .5s; display:flex; align-items:center; justify-content:center;
+    font-size:28px; letter-spacing:.3em; color:var(--red); }
+  #fade.show { opacity:.92; }
+  @media (max-width: 760px) { #help { display:none; } #pilot { width:270px; height:171px; } }
+
+  /* ============ in-game UI, in the same language as the start screen ============
+     Black glass panels with amber hairlines and corner brackets, wide Michroma labels, tall DIN stencil
+     numerals and headings, the blue of Unit 07's eye for a healthy hull, and lightly pixelated text. */
+  :root { --amber:#ff9a4a; --hudline:rgba(255,154,74,.5); --steel:#e4e7e1; --eye:#3fa2ff; --ink:#000; --panel:rgba(0,0,0,.62); }
+  .din { font-family:"DIN Condensed","Bahnschrift Condensed","Oswald",Impact,"Arial Narrow",sans-serif; }
+  .panel { background:var(--panel); border:1px solid rgba(255,154,74,.28); border-radius:0; padding:9px 14px 7px; backdrop-filter:blur(3px); }
+  .panel:not(.hud) { position:relative; }        /* panels that are themselves pinned to the screen keep their own positioning */
+  /* corner brackets */
+  .panel::before, .panel::after, #pilot::before, #pilot::after { content:""; position:absolute; width:9px; height:9px; border:2px solid var(--amber); pointer-events:none; z-index:3; }
+  .panel::before, #pilot::before { left:-1px; top:-1px; border-right:0; border-bottom:0; }
+  .panel::after, #pilot::after { right:-1px; bottom:-1px; border-left:0; border-top:0; }
+  .lbl { font-family:"Michroma","Helvetica Neue",Arial,sans-serif; font-size:8.5px; letter-spacing:.24em; opacity:1; color:var(--amber); margin-bottom:6px; }
+  .big, #ammo { font-family:"DIN Condensed","Bahnschrift Condensed","Oswald",Impact,"Arial Narrow",sans-serif; font-size:34px; line-height:.9; font-weight:700; letter-spacing:.06em; color:var(--steel);
+    padding-top:.12em; }
+  #ammo { color:var(--steel); min-width:74px; }
+  .lowammo #ammo { color:var(--amber); } .dry #ammo { color:var(--red); }
+  #tl, #tr { gap:8px; top:18px; } #tl { left:18px; } #tr { right:18px; }
+  .pips { gap:3px; padding:4px 0 6px; }
+  .pips i { width:20px; height:15px; border-radius:0; background:rgba(255,255,255,.09); outline:1px solid rgba(255,255,255,.12); outline-offset:-1px; }
+  #hull i.on { background:var(--eye); outline-color:rgba(190,225,255,.7); box-shadow:0 0 10px rgba(63,162,255,.75); }
+  .low #hull i.on { background:var(--red); outline-color:#ffb0a8; box-shadow:0 0 10px rgba(255,75,58,.8); }
+  #toast { font-family:"DIN Condensed","Bahnschrift Condensed","Oswald",Impact,"Arial Narrow",sans-serif; font-size:clamp(26px, 3.4vw, 46px); font-weight:700; letter-spacing:.2em; color:var(--steel); opacity:0;
+    text-shadow:0 0 18px #000, 0 2px 0 rgba(0,0,0,.6);
+    -webkit-mask-image:linear-gradient(to bottom, #000 0 46%, transparent 46% 50%, #000 50% 100%); mask-image:linear-gradient(to bottom, #000 0 46%, transparent 46% 50%, #000 50% 100%); }
+  #toast.show { opacity:.9; }
+  #prompt { font-family:"Michroma","Helvetica Neue",Arial,sans-serif; font-size:11px; font-weight:400; letter-spacing:.18em; text-transform:uppercase; color:var(--steel); padding:11px 18px 10px; }
+  #reload-warn .w { font-family:"DIN Condensed","Bahnschrift Condensed","Oswald",Impact,"Arial Narrow",sans-serif; font-size:clamp(44px, 7.5vw, 96px); font-weight:700; letter-spacing:.16em; line-height:1;
+    -webkit-mask-image:linear-gradient(to bottom, #000 0 46%, transparent 46% 50%, #000 50% 100%); mask-image:linear-gradient(to bottom, #000 0 46%, transparent 46% 50%, #000 50% 100%); }
+  #reload-warn .k { font-family:"Michroma","Helvetica Neue",Arial,sans-serif; font-size:10px; letter-spacing:.24em; text-transform:uppercase; color:var(--amber); margin-top:10px; }
+  #reticle { border-radius:0; } #reticle::after { border-radius:0; }
+  #help { font-family:"Michroma","Helvetica Neue",Arial,sans-serif; font-size:8.5px; line-height:2; letter-spacing:.12em; text-transform:uppercase; opacity:.85; color:#b9beb7; left:18px; bottom:18px; }
+  #help b { color:var(--amber); font-weight:400; }
+  #pad { opacity:.6; } #pad.on { color:var(--eye); opacity:1; }
+  /* pilot camera: a framed monitor with scan lines; the state's colour shows through as a tint */
+  #pilot { right:18px; bottom:18px; border-radius:0; border:1px solid rgba(255,154,74,.45); box-shadow:0 0 0 1px #000, 0 8px 30px rgba(0,0,0,.6); overflow:visible; }
+  #pilot-card { overflow:hidden; }
+  #pilot-card::before { content:""; position:absolute; inset:0; background:linear-gradient(rgba(0,0,0,.74), rgba(0,0,0,.74)), repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.5) 2px 3px); }
+  #pilot-card small, #pilot-label { position:relative; }
+  #pilot-card small { font-family:"Michroma","Helvetica Neue",Arial,sans-serif; font-size:7.5px; letter-spacing:.26em; color:var(--amber); opacity:.9; }
+  #pilot-label { font-family:"DIN Condensed","Bahnschrift Condensed","Oswald",Impact,"Arial Narrow",sans-serif; font-size:48px; font-weight:700; letter-spacing:.14em; color:var(--steel); margin-top:8px; }
+  #pilot .tagline { font-family:"Michroma","Helvetica Neue",Arial,sans-serif; font-size:7.5px; letter-spacing:.24em; color:var(--amber); left:10px; top:8px; opacity:.95; }
+  #pilot-video, .pilot-clip { z-index:1; }
+  #pilot .tagline { z-index:2; text-shadow:0 0 6px #000, 0 0 2px #000; }
+  /* scan lines over the feed, and a burst of static when the reaction changes */
+  #pilot > .scan { position:absolute; inset:0; z-index:2; pointer-events:none; background:repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.28) 2px 3px); }
+  #pilot.switch > .scan { animation: camStatic .22s steps(4) both; }
+  @keyframes camStatic { 0% { background-color:rgba(255,200,150,.55); } 40% { background-color:rgba(0,0,0,.7); }
+    70% { background-color:rgba(255,180,120,.25); } 100% { background-color:transparent; } }
+  /* pause, ending and message screens: black, with a faint amber schematic grid */
+  .screen { background:#000 linear-gradient(rgba(255,154,74,.045) 1px, transparent 1px) 0 0 / 100% 46px; }
+  .screen::before { content:""; position:absolute; inset:0; pointer-events:none;
+    background:linear-gradient(90deg, rgba(255,154,74,.045) 1px, transparent 1px) 0 0 / 46px 100%, radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0) 30%, rgba(0,0,0,.85) 100%); }
+  .screen > * { position:relative; }
+  #title, #cutscene { background:#000; } #title::before, #cutscene::before { display:none; }
+  #title > * { position:absolute; } #title > #title-logo, #title > #title-menu { position:relative; }
+  .screen h1, .screen h2 { font-family:"DIN Condensed","Bahnschrift Condensed","Oswald",Impact,"Arial Narrow",sans-serif; font-weight:700; color:var(--steel); opacity:.9;
+    -webkit-mask-image:linear-gradient(to bottom, #000 0 47%, transparent 47% 50.5%, #000 50.5% 100%); mask-image:linear-gradient(to bottom, #000 0 47%, transparent 47% 50.5%, #000 50.5% 100%); }
+  .screen h2 { font-size:clamp(48px, 7vw, 92px); letter-spacing:.2em; margin:0 -.2em 14px 0; line-height:1; }
+  #end h1 { font-size:clamp(60px, 12vw, 170px); letter-spacing:.12em; line-height:1; margin:10px 0; }
+  .screen p { font-family:"Michroma","Helvetica Neue",Arial,sans-serif; font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--gold); opacity:1; }
+  #end .lbl { font-size:11px; }
+  table.keys { font-family:"Michroma","Helvetica Neue",Arial,sans-serif; font-size:9.5px; letter-spacing:.14em; text-transform:uppercase; margin-top:6px; }
+  table.keys td { padding:7px 18px; border-bottom:1px solid rgba(255,154,74,.16); color:#c9cdc6; }
+  table.keys td:first-child { color:var(--amber); }
+  .btn { font-family:"Michroma","Helvetica Neue",Arial,sans-serif; border-radius:0; border:1px solid var(--amber); color:var(--steel); background:rgba(0,0,0,.55);
+    font-size:10px; font-weight:400; letter-spacing:.22em; padding:13px 24px; margin-top:26px; }
+  .btn:hover { background:var(--amber); color:#000; }
+  .btn.quiet { border-color:rgba(228,231,225,.35); color:#b9beb7; }
+  /* pause menu: the option the D-pad is on is filled amber; the other is a quiet outline */
+  #pause .btn { border-color:rgba(228,231,225,.3); color:#b9beb7; min-width:170px; }
+  #pause .btn.sel { background:var(--amber); border-color:var(--amber); color:#000; }
+  #pause-hint { margin-top:18px; font-family:"Michroma","Helvetica Neue",Arial,sans-serif; font-size:8.5px; letter-spacing:.2em; color:#7d8782; }
+  #fade { background:#000; font-family:"DIN Condensed","Bahnschrift Condensed","Oswald",Impact,"Arial Narrow",sans-serif; }
+  #fade.show { opacity:.94; }
+  #cs-card { background:#000 linear-gradient(rgba(255,154,74,.05) 1px, transparent 1px) 0 0 / 100% 46px; }
+  #cs-tag { font-family:"Michroma","Helvetica Neue",Arial,sans-serif; font-size:10px; letter-spacing:.3em; color:var(--amber); opacity:1; }
+  #cs-title { font-family:"DIN Condensed","Bahnschrift Condensed","Oswald",Impact,"Arial Narrow",sans-serif; font-size:clamp(46px, 8vw, 110px); letter-spacing:.14em; color:var(--steel); text-transform:uppercase; margin:16px 0 10px; }
+  #cs-note { font-family:"Michroma","Helvetica Neue",Arial,sans-serif; font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--gold); opacity:1; }
+  #cs-track { height:3px; background:rgba(255,154,74,.14); } #cs-bar { background:var(--amber); }
+  /* the same light pixelation as the start screen's small text */
+  @media (min-resolution: 2dppx) { #tl, #tr, #help, #prompt, #pilot-card, #pilot .tagline, #pause > *, #end > * { filter:url(#lores1); } #toast, #reload-warn { filter:url(#lores2); } }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="tl" class="hud">
+  <div class="panel"><div class="lbl">Hull</div><div id="hull" class="pips"></div></div>
+  <div class="panel"><div class="lbl">Repair</div><div id="kits" class="big">3</div></div>
+  <div class="panel"><div class="lbl">Ammo</div><div id="ammo">3000</div></div>
+</div>
+<div id="tr" class="hud">
+  <div class="panel"><div class="lbl">On your back</div><div id="back" class="big">0</div></div>
+  <div class="panel"><div class="lbl">Family safe</div><div id="safe" class="big">0 / 9</div></div>
+</div>
+<div id="toast" class="hud"></div>
+<div id="prompt" class="hud panel"></div>
+<div id="reticle" class="hud"></div>
+<div id="reload-warn" class="hud"><div class="w" id="reload-text">OUT OF AMMO</div><div class="k">Find an ammo crate · punch with L2 or F</div></div>
+<div id="help" class="hud panel">
+  <b>Move</b> L stick / WASD &nbsp; <b>Aim</b> R stick / mouse<br>
+  <b>Rifle</b> R2 / left mouse &nbsp; <b>Punch</b> L2 / right mouse<br>
+  <b>Jump</b> ✕ / Space &nbsp; <b>Quick boost</b> □ / Shift<br>
+  <b>Boost on/off</b> ○ / Ctrl &nbsp; <b>Shut off fence</b> △ / E<br>
+  <b>Repair</b> D-pad up / R &nbsp; <b>Pause</b> Options / Esc<br>
+  <span id="pad">No controller: press a button on it</span>
+</div>
+<div id="pilot" class="hud">
+  <div id="pilot-card"><small>PILOT CAM</small><div id="pilot-label">IDLE</div></div>
+  <video id="pilot-video" muted playsinline preload="auto"></video>
+  <div class="scan"></div>
+  <div class="tagline">UNIT 07 · COCKPIT</div>
+</div>
+<div id="fade">UNIT 07 DOWN</div>
+
+<!-- Pixelating filters for the start screen's text: each keeps one sample per cell and spreads it over the whole cell,
+     so live text turns into square blocks. lores1 = 1 px blocks, visible on high-density screens (small text), lores2 = 2 px blocks (the title). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="lores2" color-interpolation-filters="sRGB">
+    <feFlood x="0" y="0" width="1" height="1"/><feComposite width="2" height="2"/><feTile result="grid"/>
+    <feComposite in="SourceGraphic" in2="grid" operator="in" result="dot"/>
+    <feOffset in="dot" dx="1" result="r"/><feOffset in="dot" dy="1" result="d"/><feOffset in="dot" dx="1" dy="1" result="rd"/>
+    <feMerge><feMergeNode in="dot"/><feMergeNode in="r"/><feMergeNode in="d"/><feMergeNode in="rd"/></feMerge>
+  </filter>
+  <filter id="lores1" color-interpolation-filters="sRGB">
+    <feFlood x="0" y="0" width="0.5" height="0.5"/><feComposite width="1" height="1"/><feTile result="grid"/>
+    <feComposite in="SourceGraphic" in2="grid" operator="in" result="dot"/>
+    <feOffset in="dot" dx="0.5" result="r"/><feOffset in="dot" dy="0.5" result="d"/><feOffset in="dot" dx="0.5" dy="0.5" result="rd"/>
+    <feMerge><feMergeNode in="dot"/><feMergeNode in="r"/><feMergeNode in="d"/><feMergeNode in="rd"/></feMerge>
+  </filter>
+</svg>
+
+<div id="title" class="screen show">
+  <!-- Hero art: assets/ui/title_hero_lo.png, a low-resolution copy of title_hero.jpg shown with hard pixels for a slightly lo-res look. The screen still works without it. -->
+  <canvas id="title-fx"></canvas>
+  <div id="title-hero">
+    <img src="assets/ui/title_hero_lo.png" alt="" onerror="this.remove()">
+    <div id="title-eye"></div>       <!-- blue light over Unit 07's lens; switches on when the game is started -->
+  </div>
+  <div id="title-shade"></div>
+  <div id="title-scan"></div>
+  <div id="title-flash"></div>
+  <div id="title-logo">
+    <h1 id="title-name" data-text="A PLACE ABOVE">A PLACE ABOVE</h1>
+    <div id="title-sub">BRING THE FAMILY HOME</div>
+  </div>
+  <div id="title-menu">
+    <button class="menu-item" id="start">PRESS ANY BUTTON TO START</button>
+  </div>
+  <div id="title-music">M &nbsp;·&nbsp; MUSIC: ON</div>
+  <div id="title-gate">PRESS ANY BUTTON</div>
+  <div id="title-foot">© 2026 GRAINHOUSE STUDIOS ALL RIGHTS RESERVED</div>
+</div>
+
+<div id="pause" class="screen">
+  <h2>PAUSED</h2>
+  <table class="keys">
+    <tr><td>Move</td><td>Left stick</td><td>WASD / arrows</td></tr>
+    <tr><td>Aim the rifle (no auto aim)</td><td>Right stick</td><td>Mouse</td></tr>
+    <tr><td>Rifle (hold for rapid fire)</td><td>R2</td><td>Left mouse or J</td></tr>
+    <tr><td>Punch</td><td>L2 (or R1)</td><td>Right mouse or F</td></tr>
+    <tr><td>Jump</td><td>Cross</td><td>Space</td></tr>
+    <tr><td>Quick boost (dodge)</td><td>Square</td><td>Shift</td></tr>
+    <tr><td>Boost on / off</td><td>Circle (or L3)</td><td>Ctrl or C</td></tr>
+    <tr><td>Shut off an electric fence</td><td>Triangle</td><td>E</td></tr>
+    <tr><td>Repair kit</td><td>D-pad up</td><td>R</td></tr>
+    <tr><td>Aim follows movement</td><td>R3</td><td>T</td></tr>
+    <tr><td>Pause / resume</td><td>Options</td><td>Esc</td></tr>
+  </table>
+  <div class="row">
+    <button class="btn sel" id="resume">Resume</button>
+    <button class="btn" id="music-toggle">Music: on</button>
+    <button class="btn" id="quit">Quit game</button>
+  </div>
+  <div id="pause-hint">D-PAD &nbsp;◀ ▶&nbsp; SELECT &nbsp;&nbsp;·&nbsp;&nbsp; ✕ &nbsp;CONFIRM &nbsp;&nbsp;·&nbsp;&nbsp; ARROW KEYS + ENTER &nbsp;&nbsp;·&nbsp;&nbsp; M &nbsp;MUTES MUSIC ANY TIME</div>
+</div>
+
+<div id="end" class="screen">
+  <div class="lbl">The family is home</div>
+  <h1>9 / 9 SAFE</h1>
+  <p>Thanks for playing the greybox of A Place Above.</p>
+  <button class="btn" id="again">Play again</button>
+</div>
+
+<div id="cutscene" class="screen">
+  <video id="cs-video" playsinline></video>
+  <div id="cs-card"><div id="cs-tag"></div><div id="cs-title"></div><div id="cs-note"></div></div>
+  <div id="cs-track"><div id="cs-bar"></div></div>
+  <button class="btn" id="cs-skip">Skip &nbsp;·&nbsp; Enter / ✕</button>
+</div>
+
+<script type="importmap">{ "imports": { "three": "./assets/vendor/three.module.js" } }</script>
+<script type="module" src="./src/main.js"></script>
+<script type="module" src="./src/titlefx.js"></script>
+</body>
+</html>
